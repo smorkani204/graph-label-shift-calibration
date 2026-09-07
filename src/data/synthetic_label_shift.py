@@ -1,6 +1,7 @@
 """Synthetic data generation for controlled label-shift experiments."""
 
 from __future__ import annotations
+from sklearn.model_selection import train_test_split
 
 import numpy as np
 
@@ -128,3 +129,51 @@ def generate_source_target_label_shift(
     )
 
     return X_source, y_source, X_target, y_target
+
+def split_source_data(
+    X: np.ndarray,
+    y: np.ndarray,
+    train_size: float = 0.6,
+    val_size: float = 0.2,
+    test_size: float = 0.2,
+    seed: int = 42,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
+    """
+    Split labeled source data into stratified train, validation, and test sets.
+
+    The default split is:
+
+        60% train
+        20% validation
+        20% test
+    """
+
+    if not np.isclose(train_size + val_size + test_size, 1.0):
+        raise ValueError("train_size, val_size, and test_size must sum to 1.")
+
+    X_train, X_temp, y_train, y_temp = train_test_split(
+        X,
+        y,
+        train_size=train_size,
+        stratify=y,
+        random_state=seed,
+    )
+
+    relative_val_size = val_size / (val_size + test_size)
+
+    X_val, X_test, y_val, y_test = train_test_split(
+        X_temp,
+        y_temp,
+        train_size=relative_val_size,
+        stratify=y_temp,
+        random_state=seed,
+    )
+
+    return X_train, y_train, X_val, y_val, X_test, y_test

@@ -1,0 +1,41 @@
+{
+    "experiment": "stage4_bbse_baseline",
+    "source_priors_empirical": [
+        0.505,
+        0.495
+    ],
+    "target_priors_estimated": [
+        0.6968925735294117,
+        0.3031074264705882
+    ],
+    "target_priors_true": [
+        0.69,
+        0.31
+    ],
+    "target_prediction_distribution": [
+        0.6305,
+        0.3695
+    ],
+    "importance_weights_estimated": [
+        1.379985294117647,
+        0.6123382352941176
+    ],
+    "importance_weights_oracle": [
+        1.3663366336633662,
+        0.6262626262626263
+    ],
+    "prior_l2_error": 0.009747570964947926,
+    "weight_l2_error": 0.019498066469271595,
+    "confusion_matrix": [
+        [
+            0.8366336633663366,
+            0.15656565656565657
+        ],
+        [
+            0.16336633663366337,
+            0.8434343434343434
+        ]
+    ],
+    "confusion_matrix_condition_number": 1.4705676896190796,
+    "estimated_priors_valid": true
+}
