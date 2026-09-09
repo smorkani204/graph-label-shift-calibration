@@ -12,32 +12,26 @@ from src.calibration.lascal import (
     compute_supervised_classwise_error,
     estimate_lascal_classwise_error,
 )
-
 from src.calibration.losses import negative_log_likelihood
 from src.calibration.metrics import expected_calibration_error
 from src.calibration.temperature import (
     apply_temperature_to_probabilities,
 )
-
 from src.data.synthetic_label_shift import (
     generate_source_target_label_shift,
     split_source_data,
 )
-
 from src.label_shift.bbse import (
     compute_importance_weights,
     estimate_target_prediction_distribution,
     estimate_target_priors_bbse,
     is_valid_probability_vector,
 )
-
 from src.label_shift.rlls import estimate_rlls_hard_weights
-
 from src.models.baseline import (
     predict_labels_and_probabilities,
     train_logistic_regression,
 )
-
 from src.utils.results import save_json_results
 
 
@@ -66,6 +60,23 @@ def parse_args() -> argparse.Namespace:
         help="Base random seed for the experiment.",
     )
 
+    parser.add_argument(
+        "--n-source",
+        type=int,
+        default=2000,
+        help=(
+            "Number of source samples generated before the "
+            "train/validation/test split."
+        ),
+    )
+
+    parser.add_argument(
+        "--n-target",
+        type=int,
+        default=2000,
+        help="Number of unlabeled target samples.",
+    )
+
     return parser.parse_args()
 
 
@@ -73,15 +84,26 @@ def main() -> None:
     # ---------------------------------------------------------
     # 1. Read experiment configuration
     # ---------------------------------------------------------
-
     args = parse_args()
 
     target_prior_0 = args.target_prior_0
     seed = args.seed
+    n_source = args.n_source
+    n_target = args.n_target
 
     if not 0.0 <= target_prior_0 <= 1.0:
         raise ValueError(
             "--target-prior-0 must be between 0 and 1."
+        )
+
+    if n_source <= 0:
+        raise ValueError(
+            "--n-source must be a positive integer."
+        )
+
+    if n_target <= 0:
+        raise ValueError(
+            "--n-target must be a positive integer."
         )
 
     target_prior_1 = 1.0 - target_prior_0
@@ -111,8 +133,9 @@ def main() -> None:
     # so source and target samples are generated independently
     # while remaining exactly reproducible.
     # ---------------------------------------------------------
-
     X_s, y_s, X_t, y_t = generate_source_target_label_shift(
+        n_source=n_source,
+        n_target=n_target,
         source_priors=configured_source_priors,
         target_priors=configured_target_priors,
         source_seed=seed,
@@ -125,7 +148,6 @@ def main() -> None:
     # The same base seed is used for the source split so the
     # entire experiment is reproducible from one integer.
     # ---------------------------------------------------------
-
     (
         X_train,
         y_train,
@@ -142,7 +164,6 @@ def main() -> None:
     # ---------------------------------------------------------
     # 4. Train classifier using source training data only
     # ---------------------------------------------------------
-
     model = train_logistic_regression(
         X_train,
         y_train,
@@ -151,7 +172,6 @@ def main() -> None:
     # ---------------------------------------------------------
     # 5. Generate validation, test, and target predictions
     # ---------------------------------------------------------
-
     pred_val, prob_val = predict_labels_and_probabilities(
         model,
         X_val,
@@ -170,7 +190,6 @@ def main() -> None:
     # ---------------------------------------------------------
     # 6. Researcher-side calibration evaluation
     # ---------------------------------------------------------
-
     source_ece = expected_calibration_error(
         prob_test,
         y_test,
@@ -194,7 +213,6 @@ def main() -> None:
     # ---------------------------------------------------------
     # 7. Controlled temperature stress test
     # ---------------------------------------------------------
-
     temperatures = [
         0.5,
         1.0,
@@ -232,12 +250,10 @@ def main() -> None:
     # ---------------------------------------------------------
     # 8. Build source-validation confusion matrix for BBSE
     # ---------------------------------------------------------
-
     # sklearn orientation:
     #
     # rows    = true class
     # columns = predicted class
-
     cm_true_pred = confusion_matrix(
         y_val,
         pred_val,
@@ -255,13 +271,11 @@ def main() -> None:
     #
     # rows    = predicted class
     # columns = true class
-
     C = cm_true_pred.T
 
     # ---------------------------------------------------------
     # 9. Estimate observable target prediction distribution
     # ---------------------------------------------------------
-
     mu_hat = estimate_target_prediction_distribution(
         pred_target,
         n_classes=2,
@@ -270,7 +284,6 @@ def main() -> None:
     # ---------------------------------------------------------
     # 10. Estimate hidden target priors using BBSE
     # ---------------------------------------------------------
-
     q_hat_target_bbse = estimate_target_priors_bbse(
         C,
         mu_hat,
@@ -279,7 +292,6 @@ def main() -> None:
     # ---------------------------------------------------------
     # 11. Estimate source priors from validation labels
     # ---------------------------------------------------------
-
     q_hat_source = np.array(
         [
             (y_val == 0).mean(),
@@ -290,7 +302,6 @@ def main() -> None:
     # ---------------------------------------------------------
     # 12. Compute BBSE importance weights
     # ---------------------------------------------------------
-
     bbse_weights = compute_importance_weights(
         q_hat_target_bbse,
         q_hat_source,
@@ -299,7 +310,6 @@ def main() -> None:
     # ---------------------------------------------------------
     # 13. Compute RLLS-hard importance weights
     # ---------------------------------------------------------
-
     rlls_weights = estimate_rlls_hard_weights(
         source_probabilities=prob_val,
         source_labels=y_val,
@@ -314,7 +324,6 @@ def main() -> None:
     # Target labels below are used ONLY for evaluation.
     # They are never used by BBSE or RLLS.
     # ---------------------------------------------------------
-
     q_true_target = np.array(
         [
             (y_t == 0).mean(),
@@ -327,7 +336,6 @@ def main() -> None:
     # empirical target priors
     # divided by
     # empirical source-validation priors.
-
     oracle_weights = compute_importance_weights(
         q_true_target,
         q_hat_source,
@@ -336,7 +344,6 @@ def main() -> None:
     # ---------------------------------------------------------
     # 15. Class-wise target calibration-error estimation
     # ---------------------------------------------------------
-
     lascal_p = 2
     lascal_n_bins = 15
 
@@ -368,7 +375,6 @@ def main() -> None:
         # Target labels are used only for researcher-side
         # evaluation.
         # -----------------------------------------------------
-
         true_ce = compute_supervised_classwise_error(
             class_probabilities=target_class_probabilities,
             class_indicators=target_class_indicators,
@@ -380,7 +386,6 @@ def main() -> None:
         # -----------------------------------------------------
         # Label-free LaSCal estimate using BBSE weight
         # -----------------------------------------------------
-
         bbse_ce = estimate_lascal_classwise_error(
             source_class_probabilities=source_class_probabilities,
             source_class_indicators=source_class_indicators,
@@ -394,7 +399,6 @@ def main() -> None:
         # -----------------------------------------------------
         # Label-free LaSCal estimate using RLLS weight
         # -----------------------------------------------------
-
         rlls_ce = estimate_lascal_classwise_error(
             source_class_probabilities=source_class_probabilities,
             source_class_indicators=source_class_indicators,
@@ -408,7 +412,6 @@ def main() -> None:
         # -----------------------------------------------------
         # LaSCal estimate using empirical-prior oracle weight
         # -----------------------------------------------------
-
         oracle_ce = estimate_lascal_classwise_error(
             source_class_probabilities=source_class_probabilities,
             source_class_indicators=source_class_indicators,
@@ -458,7 +461,6 @@ def main() -> None:
     # ---------------------------------------------------------
     # 16. Calibration-error estimation diagnostics
     # ---------------------------------------------------------
-
     bbse_classwise_ce_error = np.abs(
         lascal_bbse_classwise_ce
         - true_target_classwise_ce
@@ -495,7 +497,6 @@ def main() -> None:
     # ---------------------------------------------------------
     # 17. Prior / importance-weight diagnostics
     # ---------------------------------------------------------
-
     bbse_prior_error = np.linalg.norm(
         q_hat_target_bbse
         - q_true_target
@@ -524,7 +525,6 @@ def main() -> None:
     # ---------------------------------------------------------
     # 18. Determine experiment label
     # ---------------------------------------------------------
-
     if np.isclose(
         target_prior_0,
         0.5,
@@ -536,7 +536,6 @@ def main() -> None:
         experiment_name = (
             "stage4_no_shift_sanity_control"
         )
-
     else:
         experiment_label = (
             "LABEL-SHIFT BASELINE"
@@ -549,150 +548,118 @@ def main() -> None:
     # ---------------------------------------------------------
     # 19. Store experiment results
     # ---------------------------------------------------------
-
     results = {
         "experiment": experiment_name,
-
         "seed": seed,
-
         "source_seed": seed,
-
         "target_seed": seed + 1,
+
+        # Sample-size configuration
+        "n_source": int(n_source),
+        "n_target": int(n_target),
+        "n_source_train": int(len(y_train)),
+        "n_source_validation": int(len(y_val)),
+        "n_source_test": int(len(y_test)),
 
         "source_priors_configured": list(
             configured_source_priors
         ),
-
         "target_priors_configured": list(
             configured_target_priors
         ),
-
         "source_priors_empirical": (
             q_hat_source.tolist()
         ),
-
         "target_priors_bbse": (
             q_hat_target_bbse.tolist()
         ),
-
         "target_priors_true": (
             q_true_target.tolist()
         ),
-
         "target_prediction_distribution": (
             mu_hat.tolist()
         ),
-
         "importance_weights_bbse": (
             bbse_weights.tolist()
         ),
-
         "importance_weights_rlls": (
             rlls_weights.tolist()
         ),
-
         "importance_weights_oracle": (
             oracle_weights.tolist()
         ),
-
         "bbse_prior_l2_error": float(
             bbse_prior_error
         ),
-
         "bbse_weight_l2_error": float(
             bbse_weight_error
         ),
-
         "rlls_weight_l2_error": float(
             rlls_weight_error
         ),
-
         "confusion_matrix": (
             C.tolist()
         ),
-
         "confusion_matrix_condition_number": float(
             condition_number
         ),
-
         "bbse_estimated_priors_valid": bool(
             bbse_priors_valid
         ),
-
         "rlls_alpha": 0.01,
-
         "rlls_delta": 0.05,
-
         "lascal_p": lascal_p,
-
         "lascal_n_bins": lascal_n_bins,
-
         "true_target_classwise_ce": (
             true_target_classwise_ce.tolist()
         ),
-
         "lascal_bbse_classwise_ce": (
             lascal_bbse_classwise_ce.tolist()
         ),
-
         "lascal_rlls_classwise_ce": (
             lascal_rlls_classwise_ce.tolist()
         ),
-
         "lascal_oracle_classwise_ce": (
             lascal_oracle_classwise_ce.tolist()
         ),
-
         "bbse_classwise_ce_absolute_error": (
             bbse_classwise_ce_error.tolist()
         ),
-
         "rlls_classwise_ce_absolute_error": (
             rlls_classwise_ce_error.tolist()
         ),
-
         "oracle_classwise_ce_absolute_error": (
             oracle_classwise_ce_error.tolist()
         ),
-
         "bbse_macro_ce_absolute_error": (
             bbse_macro_ce_error
         ),
-
         "rlls_macro_ce_absolute_error": (
             rlls_macro_ce_error
         ),
-
         "oracle_macro_ce_absolute_error": (
             oracle_macro_ce_error
         ),
-
         "source_ece": float(
             source_ece
         ),
-
         "target_ece": float(
             target_ece
         ),
-
         "source_nll": float(
             source_nll
         ),
-
         "target_nll": float(
             target_nll
         ),
-
         "temperature_results": [
             {
                 "temperature": float(
                     result["temperature"]
                 ),
-
                 "target_ece": float(
                     result["target_ece"]
                 ),
-
                 "target_nll": float(
                     result["target_nll"]
                 ),
@@ -704,13 +671,18 @@ def main() -> None:
     # ---------------------------------------------------------
     # 20. Create unique output filename
     #
+    # Including sample sizes is important now because otherwise
+    # sample-size experiments would overwrite one another.
+    #
     # Example:
     #
-    # target prior 0 = 0.70, seed 1
+    # target prior 0 = 0.70
+    # n_source = 4000
+    # n_target = 2000
+    # seed = 1
     #
-    # baseline_target_prior0_0p70_seed1.json
+    # baseline_target_prior0_0p70_ns4000_nt2000_seed1.json
     # ---------------------------------------------------------
-
     target_prior_tag = (
         f"{target_prior_0:.2f}"
         .replace(".", "p")
@@ -718,13 +690,15 @@ def main() -> None:
 
     output_path = (
         "results/stage4/"
-        f"baseline_target_prior0_{target_prior_tag}_seed{seed}.json"
+        f"baseline_target_prior0_{target_prior_tag}_"
+        f"ns{n_source}_"
+        f"nt{n_target}_"
+        f"seed{seed}.json"
     )
 
     # ---------------------------------------------------------
     # 21. Save results
     # ---------------------------------------------------------
-
     save_json_results(
         results,
         output_path,
@@ -733,398 +707,339 @@ def main() -> None:
     # ---------------------------------------------------------
     # 22. Print experiment diagnostics
     # ---------------------------------------------------------
-
     print(
         f"=== STAGE 4 {experiment_label} ==="
     )
+
     print()
+    print("Base seed:")
+    print(seed)
 
-    print(
-        "Base seed:"
-    )
-
-    print(
-        seed
-    )
     print()
+    print("Source seed:")
+    print(seed)
 
-    print(
-        "Source seed:"
-    )
-
-    print(
-        seed
-    )
     print()
+    print("Target seed:")
+    print(seed + 1)
 
-    print(
-        "Target seed:"
-    )
-
-    print(
-        seed + 1
-    )
     print()
+    print("Source sample size:")
+    print(n_source)
 
+    print()
+    print("Target sample size:")
+    print(n_target)
+
+    print()
+    print("Source train / validation / test sizes:")
     print(
-        "Configured source priors:"
+        len(y_train),
+        len(y_val),
+        len(y_test),
     )
 
+    print()
+    print("Configured source priors:")
     print(
         np.round(
             configured_source_priors,
             3,
         )
     )
+
     print()
-
-    print(
-        "Configured target priors:"
-    )
-
+    print("Configured target priors:")
     print(
         np.round(
             configured_target_priors,
             3,
         )
     )
+
     print()
-
-    print(
-        "Source-validation confusion matrix C:"
-    )
-
+    print("Source-validation confusion matrix C:")
     print(
         np.round(
             C,
             3,
         )
     )
+
     print()
-
-    print(
-        "Condition number:"
-    )
-
+    print("Condition number:")
     print(
         round(
             condition_number,
             4,
         )
     )
+
     print()
-
-    print(
-        "Source-validation empirical priors:"
-    )
-
+    print("Source-validation empirical priors:")
     print(
         np.round(
             q_hat_source,
             3,
         )
     )
+
     print()
-
-    print(
-        "Observed target prediction distribution:"
-    )
-
+    print("Observed target prediction distribution:")
     print(
         np.round(
             mu_hat,
             3,
         )
     )
+
     print()
-
-    print(
-        "BBSE estimated target priors:"
-    )
-
+    print("BBSE estimated target priors:")
     print(
         np.round(
             q_hat_target_bbse,
             3,
         )
     )
-    print()
 
+    print()
     print(
         "True target priors "
         "(researcher-side only):"
     )
-
     print(
         np.round(
             q_true_target,
             3,
         )
     )
+
     print()
-
-    print(
-        "BBSE prior-estimation L2 error:"
-    )
-
+    print("BBSE prior-estimation L2 error:")
     print(
         round(
             bbse_prior_error,
             4,
         )
     )
+
     print()
-
-    print(
-        "BBSE importance weights:"
-    )
-
+    print("BBSE importance weights:")
     print(
         np.round(
             bbse_weights,
             3,
         )
     )
+
     print()
-
-    print(
-        "RLLS importance weights:"
-    )
-
+    print("RLLS importance weights:")
     print(
         np.round(
             rlls_weights,
             3,
         )
     )
+
     print()
-
-    print(
-        "Oracle importance weights:"
-    )
-
+    print("Oracle importance weights:")
     print(
         np.round(
             oracle_weights,
             3,
         )
     )
+
     print()
-
-    print(
-        "BBSE importance-weight L2 error:"
-    )
-
+    print("BBSE importance-weight L2 error:")
     print(
         round(
             bbse_weight_error,
             4,
         )
     )
+
     print()
-
-    print(
-        "RLLS importance-weight L2 error:"
-    )
-
+    print("RLLS importance-weight L2 error:")
     print(
         round(
             rlls_weight_error,
             4,
         )
     )
-    print()
 
+    print()
     print(
         "BBSE estimated priors form valid "
         "probability vector:"
     )
-
     print(
         bbse_priors_valid
     )
-    print()
 
+    print()
     print(
         "True target classwise CE "
         "(researcher-side only):"
     )
-
     print(
         np.round(
             true_target_classwise_ce,
             6,
         )
     )
-    print()
 
+    print()
     print(
         "LaSCal classwise CE "
         "using BBSE weights:"
     )
-
     print(
         np.round(
             lascal_bbse_classwise_ce,
             6,
         )
     )
-    print()
 
+    print()
     print(
         "LaSCal classwise CE "
         "using RLLS weights:"
     )
-
     print(
         np.round(
             lascal_rlls_classwise_ce,
             6,
         )
     )
-    print()
 
+    print()
     print(
         "LaSCal classwise CE "
         "using oracle weights:"
     )
-
     print(
         np.round(
             lascal_oracle_classwise_ce,
             6,
         )
     )
-    print()
 
+    print()
     print(
         "BBSE classwise CE "
         "absolute error:"
     )
-
     print(
         np.round(
             bbse_classwise_ce_error,
             6,
         )
     )
-    print()
 
+    print()
     print(
         "RLLS classwise CE "
         "absolute error:"
     )
-
     print(
         np.round(
             rlls_classwise_ce_error,
             6,
         )
     )
-    print()
 
+    print()
     print(
         "Oracle-weight classwise CE "
         "absolute error:"
     )
-
     print(
         np.round(
             oracle_classwise_ce_error,
             6,
         )
     )
-    print()
 
+    print()
     print(
         "BBSE macro classwise CE "
         "absolute error:"
     )
-
     print(
         round(
             bbse_macro_ce_error,
             6,
         )
     )
-    print()
 
+    print()
     print(
         "RLLS macro classwise CE "
         "absolute error:"
     )
-
     print(
         round(
             rlls_macro_ce_error,
             6,
         )
     )
-    print()
 
+    print()
     print(
         "Oracle-weight macro classwise CE "
         "absolute error:"
     )
-
     print(
         round(
             oracle_macro_ce_error,
             6,
         )
     )
+
     print()
-
-    print(
-        "Source test ECE:"
-    )
-
+    print("Source test ECE:")
     print(
         round(
             source_ece,
             4,
         )
     )
-    print()
 
+    print()
     print(
         "Target ECE "
         "(researcher-side only):"
     )
-
     print(
         round(
             target_ece,
             4,
         )
     )
+
     print()
-
-    print(
-        "Source test NLL:"
-    )
-
+    print("Source test NLL:")
     print(
         round(
             source_nll,
             4,
         )
     )
-    print()
 
+    print()
     print(
         "Target NLL "
         "(researcher-side only):"
     )
-
     print(
         round(
             target_nll,
             4,
         )
     )
-    print()
 
+    print()
     print(
         "Target calibration metrics "
         "across temperatures:"
@@ -1138,13 +1053,8 @@ def main() -> None:
         )
 
     print()
-    print(
-        "Saved results to:"
-    )
-
-    print(
-        output_path
-    )
+    print("Saved results to:")
+    print(output_path)
 
 
 if __name__ == "__main__":
