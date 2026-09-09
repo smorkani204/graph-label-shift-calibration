@@ -4,6 +4,7 @@ import pytest
 from src.calibration.lascal import (
     assign_equal_width_bins,
     compute_adaptive_bin_boundaries,
+    compute_supervised_classwise_error,
     estimate_classwise_l1_calibration_error,
     estimate_lascal_classwise_error,
     estimate_target_class_calibration_curve,
@@ -526,3 +527,61 @@ def test_estimate_lascal_classwise_error_adaptive_is_finite():
 
     assert np.isfinite(error)
     assert error >= 0.0
+
+def test_supervised_classwise_error_known_value():
+    probabilities = np.array([
+        0.10,
+        0.20,
+        0.80,
+        0.90,
+    ])
+
+    indicators = np.array([
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+    ])
+
+    error = compute_supervised_classwise_error(
+        class_probabilities=probabilities,
+        class_indicators=indicators,
+        p=2,
+        n_bins=2,
+        adaptive_bins=False,
+    )
+
+    expected = 0.025
+
+    assert np.isclose(
+        error,
+        expected,
+    )
+
+def test_supervised_classwise_error_skips_singleton_bins():
+    probabilities = np.array([
+        0.10,
+        0.20,
+        0.80,
+    ])
+
+    indicators = np.array([
+        0.0,
+        0.0,
+        1.0,
+    ])
+
+    error = compute_supervised_classwise_error(
+        class_probabilities=probabilities,
+        class_indicators=indicators,
+        p=2,
+        n_bins=2,
+        adaptive_bins=False,
+    )
+
+    expected = 0.05 / 3.0
+
+    assert np.isclose(
+        error,
+        expected,
+    )

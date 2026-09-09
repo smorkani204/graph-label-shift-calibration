@@ -617,3 +617,151 @@ def estimate_lascal_classwise_error(
     return float(
         total_error / n_target
     )
+def compute_supervised_classwise_error(
+    class_probabilities: np.ndarray,
+    class_indicators: np.ndarray,
+    p: int = 2,
+    n_bins: int = 15,
+    adaptive_bins: bool = True,
+) -> float:
+    """
+    Compute the supervised class-wise calibration error used as
+    researcher-side ground truth for evaluating LaSCal.
+
+    This follows the intended leave-one-out structure of the official
+    LaSCal Ece implementation while requiring more than one observation
+    in a bin before computing the leave-one-out empirical frequency.
+
+    Parameters
+    ----------
+    class_probabilities : np.ndarray
+        Predicted probabilities for one class, shape (n_samples,).
+
+    class_indicators : np.ndarray
+        Binary indicators for the true class membership of each sample,
+        shape (n_samples,).
+
+    p : int, default=2
+        Power used in the calibration error.
+
+    n_bins : int, default=15
+        Number of calibration bins.
+
+    adaptive_bins : bool, default=True
+        If True, construct equal-count adaptive bins from the
+        probabilities being evaluated.
+
+    Returns
+    -------
+    float
+        Mean p-th-power class-wise calibration error.
+        No p-th root is applied.
+    """
+
+    class_probabilities = np.asarray(
+        class_probabilities,
+        dtype=float,
+    )
+
+    class_indicators = np.asarray(
+        class_indicators,
+        dtype=float,
+    )
+
+    if class_probabilities.ndim != 1:
+        raise ValueError(
+            "class_probabilities must be one-dimensional."
+        )
+
+    if class_indicators.ndim != 1:
+        raise ValueError(
+            "class_indicators must be one-dimensional."
+        )
+
+    if (
+        class_probabilities.shape[0]
+        != class_indicators.shape[0]
+    ):
+        raise ValueError(
+            "probabilities and indicators must contain "
+            "the same number of samples."
+        )
+
+    if class_probabilities.shape[0] == 0:
+        raise ValueError(
+            "data cannot be empty."
+        )
+
+    if p <= 0:
+        raise ValueError(
+            "p must be positive."
+        )
+
+    if n_bins <= 0:
+        raise ValueError(
+            "n_bins must be positive."
+        )
+
+    if adaptive_bins:
+        boundaries = compute_adaptive_bin_boundaries(
+            class_probabilities,
+            n_bins=n_bins,
+        )
+    else:
+        boundaries = np.linspace(
+            0.0,
+            1.0,
+            n_bins + 1,
+        )
+
+    n_samples = class_probabilities.shape[0]
+
+    total_error = 0.0
+
+    for bin_index in range(n_bins):
+        lower = boundaries[bin_index]
+        upper = boundaries[bin_index + 1]
+
+        # Match the bin interval convention used by LaSCal:
+        # probability > lower and probability <= upper.
+        in_bin = (
+            (class_probabilities > lower)
+            & (class_probabilities <= upper)
+        )
+
+        bin_count = int(
+            np.sum(in_bin)
+        )
+
+        # Leave-one-out empirical frequency requires at least
+        # two observations in the bin.
+        if bin_count <= 1:
+            continue
+
+        probabilities_in_bin = (
+            class_probabilities[in_bin]
+        )
+
+        indicators_in_bin = (
+            class_indicators[in_bin]
+        )
+
+        # For every observation i in the bin, estimate the
+        # empirical class frequency using all other observations
+        # j != i from that same bin.
+        leave_one_out_frequency = (
+            np.sum(indicators_in_bin)
+            - indicators_in_bin
+        ) / (bin_count - 1)
+
+        total_error += np.sum(
+            np.abs(
+                probabilities_in_bin
+                - leave_one_out_frequency
+            )
+            ** p
+        )
+
+    return float(
+        total_error / n_samples
+    )
