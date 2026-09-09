@@ -1,0 +1,69 @@
+{
+    "experiment": "stage4_bbse_rlls_baseline",
+    "source_priors_empirical": [
+        0.5025,
+        0.4975
+    ],
+    "target_priors_bbse": [
+        0.6735412031165066,
+        0.32645879688349333
+    ],
+    "target_priors_true": [
+        0.69,
+        0.31
+    ],
+    "target_prediction_distribution": [
+        0.6305,
+        0.3695
+    ],
+    "importance_weights_bbse": [
+        1.340380503714441,
+        0.6561985867004891
+    ],
+    "importance_weights_rlls": [
+        1.3403805037204202,
+        0.6561985866828491
+    ],
+    "importance_weights_oracle": [
+        1.373134328358209,
+        0.6231155778894473
+    ],
+    "bbse_prior_l2_error": 0.02327625377298034,
+    "bbse_weight_l2_error": 0.04655425330500078,
+    "rlls_weight_l2_error": 0.046554253288258456,
+    "confusion_matrix": [
+        [
+            0.8557213930348259,
+            0.1658291457286432
+        ],
+        [
+            0.14427860696517414,
+            0.8341708542713567
+        ]
+    ],
+    "confusion_matrix_condition_number": 1.4507852764760178,
+    "bbse_estimated_priors_valid": true,
+    "rlls_alpha": 0.01,
+    "rlls_delta": 0.05,
+    "source_ece": 0.020055915070017243,
+    "target_ece": 0.014057766265008305,
+    "source_nll": 0.3575649552388669,
+    "target_nll": 0.3594666246418046,
+    "temperature_results": [
+        {
+            "temperature": 0.5,
+            "target_ece": 0.07439142969131587,
+            "target_nll": 0.42294038973880344
+        },
+        {
+            "temperature": 1.0,
+            "target_ece": 0.014057766265008305,
+            "target_nll": 0.3594666246418046
+        },
+        {
+            "temperature": 2.0,
+            "target_ece": 0.1118112796344471,
+            "target_nll": 0.4151777192493033
+        }
+    ]
+}

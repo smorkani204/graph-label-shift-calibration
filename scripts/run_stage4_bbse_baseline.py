@@ -1,8 +1,9 @@
-"""Run the Stage 4 non-graph BBSE baseline experiment."""
+"""Run the Stage 4 non-graph BBSE and RLLS baseline experiment."""
 
 from __future__ import annotations
 
 import numpy as np
+
 from sklearn.metrics import confusion_matrix
 
 from src.calibration.losses import negative_log_likelihood
@@ -20,6 +21,7 @@ from src.label_shift.bbse import (
     estimate_target_priors_bbse,
     is_valid_probability_vector,
 )
+from src.label_shift.rlls import estimate_rlls_hard_weights
 from src.models.baseline import (
     predict_labels_and_probabilities,
     train_logistic_regression,
@@ -38,7 +40,14 @@ def main() -> None:
     # 2. Split labeled source data
     # ---------------------------------------------------------
 
-    X_train, y_train, X_val, y_val, X_test, y_test = split_source_data(
+    (
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        X_test,
+        y_test,
+    ) = split_source_data(
         X_s,
         y_s,
     )
@@ -53,8 +62,13 @@ def main() -> None:
     )
 
     # ---------------------------------------------------------
-    # 4. Generate source-test and target predictions
+    # 4. Generate validation, test, and target predictions
     # ---------------------------------------------------------
+
+    pred_val, prob_val = predict_labels_and_probabilities(
+        model,
+        X_val,
+    )
 
     pred_test, prob_test = predict_labels_and_probabilities(
         model,
@@ -94,11 +108,6 @@ def main() -> None:
     # 6. Controlled temperature stress test
     # ---------------------------------------------------------
 
-    # Fixed temperature conditions:
-    #
-    # T < 1 sharpens probabilities.
-    # T = 1 leaves probabilities unchanged.
-    # T > 1 softens probabilities.
     temperatures = [0.5, 1.0, 2.0]
 
     temperature_results = []
@@ -130,16 +139,17 @@ def main() -> None:
         )
 
     # ---------------------------------------------------------
-    # 7. Build source confusion matrix for BBSE
+    # 7. Build source-validation confusion matrix for BBSE
     # ---------------------------------------------------------
 
     # sklearn orientation:
     #
     # rows    = true class
     # columns = predicted class
+
     cm_true_pred = confusion_matrix(
-        y_test,
-        pred_test,
+        y_val,
+        pred_val,
         labels=[0, 1],
         normalize="true",
     )
@@ -150,6 +160,7 @@ def main() -> None:
     #
     # rows    = predicted class
     # columns = true class
+
     C = cm_true_pred.T
 
     # ---------------------------------------------------------
@@ -165,36 +176,59 @@ def main() -> None:
     # 9. Estimate hidden target priors using BBSE
     # ---------------------------------------------------------
 
-    q_hat_target = estimate_target_priors_bbse(
+    q_hat_target_bbse = estimate_target_priors_bbse(
         C,
         mu_hat,
     )
 
     # ---------------------------------------------------------
-    # 10. Estimate source priors from labeled source test data
+    # 10. Estimate source priors from validation labels
     # ---------------------------------------------------------
 
     q_hat_source = np.array(
         [
-            (y_test == 0).mean(),
-            (y_test == 1).mean(),
+            (y_val == 0).mean(),
+            (y_val == 1).mean(),
         ]
     )
 
     # ---------------------------------------------------------
-    # 11. Compute estimated importance weights
+    # 11. Compute BBSE importance weights
     # ---------------------------------------------------------
 
-    estimated_weights = compute_importance_weights(
-        q_hat_target,
+    bbse_weights = compute_importance_weights(
+        q_hat_target_bbse,
         q_hat_source,
     )
 
     # ---------------------------------------------------------
-    # 12. Researcher-side ground truth
+    # 12. Compute RLLS-hard importance weights
+    # ---------------------------------------------------------
+
+    # RLLS uses:
+    #
+    # - source-validation posterior probabilities,
+    # - source-validation labels,
+    # - unlabeled target posterior probabilities.
+    #
+    # Target labels are NOT used here.
+    #
+    # alpha=0.01 and delta=0.05 match the reference
+    # RLLS-hard configuration used in our implementation.
+
+    rlls_weights = estimate_rlls_hard_weights(
+        source_probabilities=prob_val,
+        source_labels=y_val,
+        target_probabilities=prob_target,
+        alpha=0.01,
+        delta=0.05,
+    )
+
+    # ---------------------------------------------------------
+    # 13. Researcher-side ground truth
     #
     # Target labels below are used ONLY for evaluation.
-    # They must never be used by BBSE itself.
+    # They must never be used by BBSE or RLLS.
     # ---------------------------------------------------------
 
     q_true_target = np.array(
@@ -210,46 +244,52 @@ def main() -> None:
     )
 
     # ---------------------------------------------------------
-    # 13. Diagnostic errors
+    # 14. Diagnostic errors
     # ---------------------------------------------------------
 
-    prior_error = np.linalg.norm(
-        q_hat_target - q_true_target
+    bbse_prior_error = np.linalg.norm(
+        q_hat_target_bbse - q_true_target
     )
 
-    weight_error = np.linalg.norm(
-        estimated_weights - oracle_weights
+    bbse_weight_error = np.linalg.norm(
+        bbse_weights - oracle_weights
+    )
+
+    rlls_weight_error = np.linalg.norm(
+        rlls_weights - oracle_weights
     )
 
     condition_number = np.linalg.cond(C)
 
-    priors_valid = is_valid_probability_vector(
-        q_hat_target
+    bbse_priors_valid = is_valid_probability_vector(
+        q_hat_target_bbse
     )
 
     # ---------------------------------------------------------
-    # 14. Store experiment results
+    # 15. Store experiment results
     # ---------------------------------------------------------
 
     results = {
-        "experiment": "stage4_bbse_baseline",
+        "experiment": "stage4_bbse_rlls_baseline",
         "source_priors_empirical": q_hat_source.tolist(),
-        "target_priors_estimated": q_hat_target.tolist(),
+        "target_priors_bbse": q_hat_target_bbse.tolist(),
         "target_priors_true": q_true_target.tolist(),
         "target_prediction_distribution": mu_hat.tolist(),
-        "importance_weights_estimated": (
-            estimated_weights.tolist()
-        ),
-        "importance_weights_oracle": (
-            oracle_weights.tolist()
-        ),
-        "prior_l2_error": float(prior_error),
-        "weight_l2_error": float(weight_error),
+        "importance_weights_bbse": bbse_weights.tolist(),
+        "importance_weights_rlls": rlls_weights.tolist(),
+        "importance_weights_oracle": oracle_weights.tolist(),
+        "bbse_prior_l2_error": float(bbse_prior_error),
+        "bbse_weight_l2_error": float(bbse_weight_error),
+        "rlls_weight_l2_error": float(rlls_weight_error),
         "confusion_matrix": C.tolist(),
         "confusion_matrix_condition_number": float(
             condition_number
         ),
-        "estimated_priors_valid": bool(priors_valid),
+        "bbse_estimated_priors_valid": bool(
+            bbse_priors_valid
+        ),
+        "rlls_alpha": 0.01,
+        "rlls_delta": 0.05,
         "source_ece": float(source_ece),
         "target_ece": float(target_ece),
         "source_nll": float(source_nll),
@@ -271,22 +311,22 @@ def main() -> None:
     }
 
     # ---------------------------------------------------------
-    # 15. Save results to disk
+    # 16. Save results to disk
     # ---------------------------------------------------------
 
     save_json_results(
         results,
-        "results/stage4/bbse_baseline.json",
+        "results/stage4/bbse_rlls_baseline.json",
     )
 
     # ---------------------------------------------------------
-    # 16. Print experiment diagnostics
+    # 17. Print experiment diagnostics
     # ---------------------------------------------------------
 
-    print("=== STAGE 4 BBSE BASELINE ===")
+    print("=== STAGE 4 BBSE + RLLS BASELINE ===")
     print()
 
-    print("Source confusion matrix C:")
+    print("Source-validation confusion matrix C:")
     print(np.round(C, 3))
     print()
 
@@ -294,36 +334,48 @@ def main() -> None:
     print(round(condition_number, 4))
     print()
 
+    print("Source-validation empirical priors:")
+    print(np.round(q_hat_source, 3))
+    print()
+
     print("Observed target prediction distribution:")
     print(np.round(mu_hat, 3))
     print()
 
-    print("Estimated target priors:")
-    print(np.round(q_hat_target, 3))
+    print("BBSE estimated target priors:")
+    print(np.round(q_hat_target_bbse, 3))
     print()
 
     print("True target priors (researcher-side only):")
     print(np.round(q_true_target, 3))
     print()
 
-    print("Prior-estimation L2 error:")
-    print(round(prior_error, 4))
+    print("BBSE prior-estimation L2 error:")
+    print(round(bbse_prior_error, 4))
     print()
 
-    print("Estimated importance weights:")
-    print(np.round(estimated_weights, 3))
+    print("BBSE importance weights:")
+    print(np.round(bbse_weights, 3))
+    print()
+
+    print("RLLS importance weights:")
+    print(np.round(rlls_weights, 3))
     print()
 
     print("Oracle importance weights:")
     print(np.round(oracle_weights, 3))
     print()
 
-    print("Importance-weight L2 error:")
-    print(round(weight_error, 4))
+    print("BBSE importance-weight L2 error:")
+    print(round(bbse_weight_error, 4))
     print()
 
-    print("Estimated priors form valid probability vector:")
-    print(priors_valid)
+    print("RLLS importance-weight L2 error:")
+    print(round(rlls_weight_error, 4))
+    print()
+
+    print("BBSE estimated priors form valid probability vector:")
+    print(bbse_priors_valid)
     print()
 
     print("Source test ECE:")
