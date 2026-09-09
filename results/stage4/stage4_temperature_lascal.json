@@ -1,0 +1,75 @@
+{
+  "experiment": "stage4_lascal_temperature_sanity",
+  "seed": 1,
+  "n_source": 2000,
+  "n_target": 2000,
+  "source_priors": [
+    0.5,
+    0.5
+  ],
+  "target_priors": [
+    0.7,
+    0.3
+  ],
+  "temperatures": [
+    0.5,
+    1.0,
+    2.0
+  ],
+  "lascal_p": 2,
+  "lascal_n_bins": 15,
+  "bbse_weights": [
+    1.4445087900723892,
+    0.5510237849017581
+  ],
+  "temperature_results": {
+    "0.5": {
+      "temperature": 0.5,
+      "lascal_classwise_ce": [
+        0.04772466488669948,
+        0.026492950608136053
+      ],
+      "supervised_target_classwise_ce": [
+        0.025268858700656913,
+        0.025356495088455347
+      ],
+      "classwise_absolute_error": [
+        0.022455806186042565,
+        0.0011364555196807062
+      ],
+      "macro_absolute_error": 0.011796130852861636
+    },
+    "1.0": {
+      "temperature": 1.0,
+      "lascal_classwise_ce": [
+        0.038782429902117464,
+        0.024423801302201918
+      ],
+      "supervised_target_classwise_ce": [
+        0.014899766319578686,
+        0.014983185028956077
+      ],
+      "classwise_absolute_error": [
+        0.02388266358253878,
+        0.009440616273245842
+      ],
+      "macro_absolute_error": 0.01666163992789231
+    },
+    "2.0": {
+      "temperature": 2.0,
+      "lascal_classwise_ce": [
+        0.05112101747245515,
+        0.04056842175668235
+      ],
+      "supervised_target_classwise_ce": [
+        0.023749894442853706,
+        0.023839164783344694
+      ],
+      "classwise_absolute_error": [
+        0.027371123029601443,
+        0.016729256973337655
+      ],
+      "macro_absolute_error": 0.02205019000146955
+    }
+  }
+}

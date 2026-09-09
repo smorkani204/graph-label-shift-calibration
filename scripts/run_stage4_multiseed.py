@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +13,9 @@ import numpy as np
 
 SEEDS = list(range(1, 11))
 TARGET_PRIOR_0_VALUES = [0.5, 0.6, 0.7, 0.8]
+
+N_SOURCE = 2000
+N_TARGET = 2000
 
 RESULTS_DIR = Path("results/stage4")
 SUMMARY_PATH = RESULTS_DIR / "stage4_multiseed_summary.json"
@@ -20,27 +25,35 @@ def run_single_experiment(
     target_prior_0: float,
     seed: int,
 ) -> Path:
+    """Run one Stage 4 baseline condition."""
+
     command = [
-        "python",
+        sys.executable,
         "scripts/run_stage4_bbse_baseline.py",
         "--target-prior-0",
         str(target_prior_0),
+        "--n-source",
+        str(N_SOURCE),
+        "--n-target",
+        str(N_TARGET),
         "--seed",
         str(seed),
     ]
 
     print(
         f"Running target_prior_0={target_prior_0}, "
+        f"n_source={N_SOURCE}, "
+        f"n_target={N_TARGET}, "
         f"seed={seed}"
     )
+
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = "."
 
     subprocess.run(
         command,
         check=True,
-        env={
-            **dict(__import__("os").environ),
-            "PYTHONPATH": ".",
-        },
+        env=environment,
     )
 
     prior_tag = (
@@ -50,7 +63,12 @@ def run_single_experiment(
 
     result_path = (
         RESULTS_DIR
-        / f"baseline_target_prior0_{prior_tag}_seed{seed}.json"
+        / (
+            f"baseline_target_prior0_{prior_tag}"
+            f"_ns{N_SOURCE}"
+            f"_nt{N_TARGET}"
+            f"_seed{seed}.json"
+        )
     )
 
     if not result_path.exists():
@@ -64,6 +82,8 @@ def run_single_experiment(
 def load_result(
     result_path: Path,
 ) -> dict:
+    """Load one baseline result JSON file."""
+
     with result_path.open(
         "r",
         encoding="utf-8",
@@ -74,27 +94,23 @@ def load_result(
 def summarize_metric(
     values: list[float],
 ) -> dict:
+    """Compute summary statistics while retaining raw values."""
+
     array = np.asarray(
         values,
         dtype=float,
     )
 
     return {
-        "mean": float(
-            np.mean(array)
-        ),
+        "mean": float(np.mean(array)),
         "std": float(
             np.std(
                 array,
                 ddof=1,
             )
         ),
-        "min": float(
-            np.min(array)
-        ),
-        "max": float(
-            np.max(array)
-        ),
+        "min": float(np.min(array)),
+        "max": float(np.max(array)),
         "values": array.tolist(),
     }
 
@@ -102,6 +118,8 @@ def summarize_metric(
 def summarize_condition(
     results: list[dict],
 ) -> dict:
+    """Aggregate metrics for one target-prior condition."""
+
     bbse_macro_errors = [
         result[
             "bbse_macro_ce_absolute_error"
@@ -165,57 +183,75 @@ def summarize_condition(
         for result in results
     ]
 
+    bbse_valid_values = [
+    bool(
+        result[
+            "bbse_estimated_priors_valid"
+        ]
+    )
+    for result in results
+    ]
+
+    bbse_valid_count = int(
+        sum(bbse_valid_values)
+    )
+
+    bbse_invalid_count = int(
+        len(bbse_valid_values)
+        - bbse_valid_count
+    )
+
     return {
         "n_runs": len(results),
-
+        "bbse_valid_count": bbse_valid_count,
+        "bbse_invalid_count": bbse_invalid_count,
+        "bbse_valid_fraction": float(
+            bbse_valid_count
+            / len(results)
+        ),
+        "bbse_valid_values": (
+            bbse_valid_values
+        ),
         "bbse_macro_ce_absolute_error": (
             summarize_metric(
                 bbse_macro_errors
             )
         ),
-
         "rlls_macro_ce_absolute_error": (
             summarize_metric(
                 rlls_macro_errors
             )
         ),
-
         "oracle_macro_ce_absolute_error": (
             summarize_metric(
                 oracle_macro_errors
             )
         ),
-
         "bbse_prior_l2_error": (
             summarize_metric(
                 bbse_prior_errors
             )
         ),
-
         "bbse_weight_l2_error": (
             summarize_metric(
                 bbse_weight_errors
             )
         ),
-
         "rlls_weight_l2_error": (
             summarize_metric(
                 rlls_weight_errors
             )
         ),
-
         "confusion_matrix_condition_number": (
             summarize_metric(
                 condition_numbers
             )
         ),
-
         "target_ece": (
             summarize_metric(
                 target_ece_values
             )
         ),
-
         "target_nll": (
             summarize_metric(
                 target_nll_values
@@ -225,6 +261,8 @@ def summarize_condition(
 
 
 def main() -> None:
+    """Run all multi-seed shift-severity conditions."""
+
     RESULTS_DIR.mkdir(
         parents=True,
         exist_ok=True,
@@ -259,13 +297,12 @@ def main() -> None:
             "target_prior_0": (
                 target_prior_0
             ),
-
             "target_prior_1": (
                 1.0 - target_prior_0
             ),
-
+            "n_source": N_SOURCE,
+            "n_target": N_TARGET,
             "seeds": SEEDS,
-
             "summary": summarize_condition(
                 condition_results
             ),
@@ -275,13 +312,12 @@ def main() -> None:
         "experiment": (
             "stage4_multiseed_baseline"
         ),
-
         "target_prior_0_values": (
             TARGET_PRIOR_0_VALUES
         ),
-
+        "n_source": N_SOURCE,
+        "n_target": N_TARGET,
         "seeds": SEEDS,
-
         "conditions": (
             all_summaries
         ),
@@ -303,15 +339,24 @@ def main() -> None:
     )
     print()
 
-    for prior_key, condition in all_summaries.items():
+    for condition in all_summaries.values():
         summary = condition[
             "summary"
         ]
 
         print(
-            f"Target priors: "
+            "Target priors: "
             f"[{condition['target_prior_0']:.2f}, "
             f"{condition['target_prior_1']:.2f}]"
+        )
+
+        print(
+            "BBSE valid runs:"
+        )
+
+        print(
+            f"{summary['bbse_valid_count']}"
+            f"/{summary['n_runs']}"
         )
 
         print(
