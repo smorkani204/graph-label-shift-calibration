@@ -37,5 +37,26 @@
         ]
     ],
     "confusion_matrix_condition_number": 1.4705676896190796,
-    "estimated_priors_valid": true
+    "estimated_priors_valid": true,
+    "source_ece": 0.020055915070017243,
+    "target_ece": 0.014057766265008305,
+    "source_nll": 0.3575649552388669,
+    "target_nll": 0.3594666246418046,
+    "temperature_results": [
+        {
+            "temperature": 0.5,
+            "target_ece": 0.07439142969131587,
+            "target_nll": 0.42294038973880344
+        },
+        {
+            "temperature": 1.0,
+            "target_ece": 0.014057766265008305,
+            "target_nll": 0.3594666246418046
+        },
+        {
+            "temperature": 2.0,
+            "target_ece": 0.1118112796344471,
+            "target_nll": 0.4151777192493033
+        }
+    ]
 }
