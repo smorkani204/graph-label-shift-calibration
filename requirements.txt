@@ -7,3 +7,5 @@ torch
 pyyaml
 tqdm
 pytest
+
+cvxpy
